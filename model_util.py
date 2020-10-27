@@ -198,7 +198,7 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
   # if flags.asymmetric_head_model == "complex_features":
   #     raise NotImplementedError("Todo")
   # assert flags.asymmetric_head_model == "simple_features"
-  assert flags.asymmetric_head, "Wrong head-creation function called"
+  assert FLAGS.asymmetric_head, "Wrong head-creation function called"
 
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     mid_dim = hiddens.shape[-1]
@@ -271,6 +271,6 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
         hiddens_predictor_list.append(hiddens_predictor)
 
   with tf.variable_scope(name + "_both" , reuse=tf.AUTO_REUSE):
-    hiddens = tf.concat(hiddens_predictor, hiddens_predictee)
+    hiddens = tf.concat([hiddens_predictor, hiddens_predictee], axis=0)
 
   return hiddens, abstractions
