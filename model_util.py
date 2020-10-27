@@ -185,3 +185,92 @@ def supervised_head(hiddens, num_classes, is_training, name='head_supervised'):
     if var.name.startswith(name):
       tf.add_to_collection('trainable_variables_inblock_5', var)
   return logits
+
+
+
+def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
+  """Head for projecting hiddens fo contrastive loss."""
+  #
+  # Todo. First, treat the first batch_size elements different from the last batch_size elements.
+  #        ( The "first" are the ... actually it might be symmetric, and both input images are augmented?)
+  #        It's basically the same as below, just times two for each set of hiddens.
+  #
+  # if flags.asymmetric_head_model == "complex_features":
+  #     raise NotImplementedError("Todo")
+  # assert flags.asymmetric_head_model == "simple_features"
+  assert flags.asymmetric_head, "Wrong head-creation function called"
+
+  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+    mid_dim = hiddens.shape[-1]
+    out_dim = FLAGS.proj_out_dim
+    hiddens_list = [hiddens]
+    if FLAGS.proj_head_mode == 'none':
+      pass  # directly use the output hiddens as hiddens.
+    elif FLAGS.proj_head_mode == 'linear':
+      # modify both heads further
+      hiddens = linear_layer(
+          hiddens, is_training, out_dim,
+          use_bias=False, use_bn=True, name='l_0')
+      hiddens_list.append(hiddens)
+    elif FLAGS.proj_head_mode == 'nonlinear':
+      for j in range(FLAGS.num_proj_layers):
+        if j != FLAGS.num_proj_layers - 1:
+          # for the middle layers, use bias and relu for the output.
+          dim, bias_relu = mid_dim, True
+        else:
+          # for the final layer, neither bias nor relu is used.
+          dim, bias_relu = FLAGS.proj_out_dim, False
+        hiddens = linear_layer(
+            hiddens, is_training, dim,
+            use_bias=bias_relu, use_bn=True, name='nl_%d'%j)
+        hiddens = tf.nn.relu(hiddens) if bias_relu else hiddens
+        hiddens_list.append(hiddens)
+    else:
+      raise ValueError('Unknown head projection mode {}'.format(
+          FLAGS.proj_head_mode))
+    if FLAGS.train_mode == 'pretrain':
+      # take the projection head output during pre-training.
+      hiddens = hiddens_list[-1]
+    else:
+      # for checkpoint compatibility, whole projection head is built here.
+      # but you can select part of projection head during fine-tuning.
+      hiddens = hiddens_list[FLAGS.ft_proj_selector]
+
+    hiddens_predictor, hiddens_predictee = tf.split(hiddens, 2, axis=0)
+    hiddens_predictor_list = [hiddens_predictor]
+
+    # abstraction layers
+  with tf.variable_scope(name + "_abstractor" , reuse=tf.AUTO_REUSE):
+    for j in range(FLAGS.num_abstractor_layers):
+        if j != FLAGS.num_abstractor_layers - 1:
+          # for the middle layers, use bias and relu for the output.
+          dim, bias_relu = mid_dim, True
+        else:
+          # since we feed in the abstraction to the next layer, do apply relu and bias
+          dim, bias_relu = FLAGS.proj_abs_dim, True
+        hiddens_predictor = linear_layer(
+            hiddens_predictor, is_training, dim,
+            use_bias=bias_relu, use_bn=True, name='nl_%d'%j)
+        hiddens_predictor = tf.nn.relu(hiddens_predictor) if bias_relu else hiddens_predictor
+        hiddens_predictor_list.append(hiddens_predictor)
+        abstractions = hiddens_predictor
+
+    # prediction layers
+  with tf.variable_scope(name + "_predictor" , reuse=tf.AUTO_REUSE):
+    for j in range(FLAGS.num_predictor_layers):
+        if j != FLAGS.num_predictor_layers - 1:
+          # for the middle layers, use bias and relu for the output.
+          dim, bias_relu = mid_dim, True
+        else:
+          # for the final layer, neither bias nor relu is used.
+          dim, bias_relu = FLAGS.proj_out_dim, False
+        hiddens_predictor = linear_layer(
+            hiddens_predictor, is_training, dim,
+            use_bias=bias_relu, use_bn=True, name='nl_%d'%j)
+        hiddens_predictor = tf.nn.relu(hiddens_predictor) if bias_relu else hiddens_predictor
+        hiddens_predictor_list.append(hiddens_predictor)
+
+  with tf.variable_scope(name + "_both" , reuse=tf.AUTO_REUSE):
+    hiddens = tf.concat(hiddens_predictor, hiddens_predictee)
+
+  return hiddens, abstractions

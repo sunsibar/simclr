@@ -122,6 +122,11 @@ def build_input_fn(builder, is_training):
       if FLAGS.train_mode == 'pretrain':
         xs = []
         for _ in range(2):  # Two transformations
+          # Todo: Modify the preprocess function to return two tensors, one with the result, one
+          #       with the shift distances and rotations. Then,
+          # x, preprocess_shift = preprocess_fn_pretrain(image)
+          # xs.append(x)
+          # shifts.append(preprocess_shift) ...
           xs.append(preprocess_fn_pretrain(image))
         image = tf.concat(xs, -1)
         label = tf.zeros([num_classes])

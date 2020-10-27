@@ -69,8 +69,16 @@ def build_model_fn(model, num_classes, num_train_examples):
     # Add head and loss.
     if FLAGS.train_mode == 'pretrain':
       tpu_context = params['context'] if 'context' in params else None
-      hiddens_proj = model_util.projection_head(hiddens, is_training)
-      contrast_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
+      if FLAGS.asymmetric_head:
+        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+        contrast_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
+            hiddens_proj,
+            hidden_norm=FLAGS.hidden_norm,
+            temperature=FLAGS.temperature,
+            tpu_context=tpu_context if is_training else None)
+      else:
+        hiddens_proj = model_util.projection_head(hiddens, is_training)
+        contrast_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
           hiddens_proj,
           hidden_norm=FLAGS.hidden_norm,
           temperature=FLAGS.temperature,
@@ -80,7 +88,10 @@ def build_model_fn(model, num_classes, num_train_examples):
       contrast_loss = tf.zeros([])
       logits_con = tf.zeros([params['batch_size'], 10])
       labels_con = tf.zeros([params['batch_size'], 10])
-      hiddens = model_util.projection_head(hiddens, is_training)
+      if FLAGS.asymmetric_head:
+        hiddens, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+      else:
+        hiddens = model_util.projection_head(hiddens, is_training)
       logits_sup = model_util.supervised_head(
           hiddens, num_classes, is_training)
       obj_lib.add_supervised_loss(

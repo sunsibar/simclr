@@ -43,7 +43,7 @@ flags.DEFINE_float(
     'Initial learning rate per batch size of 256.')
 
 flags.DEFINE_enum(
-    'learning_rate_scaling', 'linear', ['linear', 'sqrt'],
+    'learning_rate_scaling', 'sqrt', ['linear', 'sqrt'],
     'How to scale the learning rate as a function of batch size.')
 
 flags.DEFINE_float(
@@ -67,7 +67,7 @@ flags.DEFINE_string(
     'Split for training.')
 
 flags.DEFINE_integer(
-    'train_epochs', 100,
+    'train_epochs', 500,
     'Number of epochs to train for.')
 
 flags.DEFINE_integer(
@@ -79,7 +79,7 @@ flags.DEFINE_integer(
     'Batch size for eval.')
 
 flags.DEFINE_integer(
-    'train_summary_steps', 100,
+    'train_summary_steps', 10,
     'Steps before saving training summaries. If 0, will not save.')
 
 flags.DEFINE_integer(
@@ -142,7 +142,7 @@ flags.DEFINE_string(
 
 flags.DEFINE_string(
     'data_dir', None,
-    'Directory where dataset is stored.')
+    'Directory where dataset is stored. For ImageNet2012, download/move the tarballs to this directory.')
 
 flags.DEFINE_bool(
     'use_tpu', True,
@@ -203,6 +203,10 @@ flags.DEFINE_integer(
     'Number of head projection dimension.')
 
 flags.DEFINE_integer(
+    'proj_abs_dim', 128,
+    'Number of features in the "abstraction" within the predictor head. Only used if an asymmetric head is used.')
+
+flags.DEFINE_integer(
     'num_proj_layers', 3,
     'Number of non-linear head layers.')
 
@@ -243,6 +247,38 @@ flags.DEFINE_boolean(
     'use_blur', True,
     'Whether or not to use Gaussian blur for augmentation during pretraining.')
 
+flags.DEFINE_integer(
+    'loss_logging_number_steps', 2,
+    'Every so many iterations, log the loss.')
+
+flags.DEFINE_boolean(
+    'asymmetric_head', True,
+    'Whether to make the prediction head asymmetric, so that the "predictor" has more layers than the predicted. For a'
+    ' given batch size, this will reduce the number of negative examples by half.')
+
+# TODO: Remove this one, instead use "proj_head_mode"
+# flags.DEFINE_string(
+#     'asymmetric_head_model', "simple_features",
+#     'simple_features: The features are what comes out of the ResNet (after max pooling).'
+#     'complex_features: We further process the output from the ResNet. Numbers of layers are defined in another flag.')
+
+flags.DEFINE_integer(
+    'num_predictor_layers', 1,
+    'Number of layers that calculate the prediction, from the higher-level features. Must be at least one.'
+    ' Only used if an asymmetric head is used.')
+
+flags.DEFINE_integer(
+    'num_abstractor_layers', 1,
+    'Number of layers that calculate some sort of higher-level features from the original features (original '
+    'features are shared by predictor and to-be-predicted head). Only used if an asymmetric head is used.')
+
+## TODO: Remove this one, and instead use "proj_head_mode"
+# flags.DEFINE_integer(
+#     'features_additional_layers', 0,
+#     'Number of layers appended after max-pool to the output of ResNet. Shared by predictor and predictee head.'
+#     '(Predicting and predicted head?)'
+#     ' Only used if an asymmetric head is used and complex_features is the asymmetric_head_model.')
+
 
 def build_hub_module(model, num_classes, global_step, checkpoint_path):
   """Create TF-Hub module."""
@@ -269,9 +305,16 @@ def build_hub_module(model, num_classes, global_step, checkpoint_path):
         endpoints[v] = tf.get_default_graph().get_tensor_by_name(
             'base_model/{}:0'.format(v))
     if FLAGS.train_mode == 'pretrain':
-      hiddens_proj = model_util.projection_head(hiddens, is_training)
-      endpoints['proj_head_input'] = hiddens
-      endpoints['proj_head_output'] = hiddens_proj
+      if FLAGS.asymmetric_head:
+        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+        endpoints['proj_head_input'] = hiddens
+        endpoints['proj_head_abstractions'] = abstrs
+        endpoints['proj_head_output_predictor_predictee'] = hiddens_proj
+        # \ first batchsize elements are predictors, the rest are predictees
+      else:
+        hiddens_proj = model_util.projection_head(hiddens, is_training)
+        endpoints['proj_head_input'] = hiddens
+        endpoints['proj_head_output'] = hiddens_proj
     else:
       logits_sup = model_util.supervised_head(
           hiddens, num_classes, is_training)
@@ -353,9 +396,17 @@ def main(argv):
   if FLAGS.train_summary_steps > 0:
     tf.config.set_soft_device_placement(True)
 
+  #tf.logging.set_verbosity(tf.logging.WARNING)
+  tf.logging.set_verbosity(tf.logging.INFO)
+
+  if FLAGS.asymmetric_head:
+      FLAGS.use_blur = False
+
+  # manual_dir: The directory containing the tarballs with imagenet (if imagenet is used)
+  download_config = tfds.download.DownloadConfig(manual_dir=FLAGS.data_dir)
 
   builder = tfds.builder(FLAGS.dataset, data_dir=FLAGS.data_dir)
-  builder.download_and_prepare()
+  builder.download_and_prepare(download_config=download_config)
   num_train_examples = builder.info.splits[FLAGS.train_split].num_examples
   num_eval_examples = builder.info.splits[FLAGS.eval_split].num_examples
   num_classes = builder.info.features['label'].num_classes
@@ -395,6 +446,7 @@ def main(argv):
       save_checkpoints_steps=checkpoint_steps,
       keep_checkpoint_max=FLAGS.keep_checkpoint_max,
       master=FLAGS.master,
+      log_step_count_steps=FLAGS.loss_logging_number_steps,
       cluster=cluster)
   estimator = tf.estimator.tpu.TPUEstimator(
       model_lib.build_model_fn(model, num_classes, num_train_examples),
