@@ -215,6 +215,18 @@ flags.DEFINE_integer(
     'Which layer of the projection head to use during fine-tuning. '
     '0 means throwing away the projection head, and -1 means the final layer.')
 
+flags.DEFINE_string(
+    'ft_proj_head_selector', "abstractor",
+    'One of "abstractor", "predictee", "predictor", "original". '
+    'Only used if "asymmetric_head" is True. A modifier for easier selection of a layer from the prediction head'
+    ' for finetuning.'
+    'The selected layer will be the "ft_proj_selector"-th layer from each of the three heads. "original" works '
+    'as with no asymmetric head; i.e., the resulting batch size is double the number of input batch size. For the others, '
+    'the resulting batch size is half of what it is in the non-asymmetric version, because the single head is split up '
+    'into two here.  "abstractor" is on the predictor head; "predictor" is the final part of the predictor head. '
+    '"predictee" is the shorter head that "is being" predicted.')
+
+
 flags.DEFINE_boolean(
     'global_bn', True,
     'Whether to aggregate BN statistics across distributed cores.')

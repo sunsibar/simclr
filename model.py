@@ -76,6 +76,7 @@ def build_model_fn(model, num_classes, num_train_examples):
             hidden_norm=FLAGS.hidden_norm,
             temperature=FLAGS.temperature,
             tpu_context=tpu_context if is_training else None)
+        logits_sup = tf.zeros([params['batch_size'] / 2, num_classes])
       else:
         hiddens_proj = model_util.projection_head(hiddens, is_training)
         contrast_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
@@ -83,21 +84,27 @@ def build_model_fn(model, num_classes, num_train_examples):
           hidden_norm=FLAGS.hidden_norm,
           temperature=FLAGS.temperature,
           tpu_context=tpu_context if is_training else None)
-      logits_sup = tf.zeros([params['batch_size'], num_classes])
+        logits_sup = tf.zeros([params['batch_size'], num_classes])
     else:
       contrast_loss = tf.zeros([])
-      logits_con = tf.zeros([params['batch_size'], 10])
-      labels_con = tf.zeros([params['batch_size'], 10])
       if FLAGS.asymmetric_head:
+        logits_con = tf.zeros([params['batch_size']/2, 10])
+        labels_con = tf.zeros([params['batch_size']/2, 10])
         hiddens, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+        _, labels_modif = tf.split(labels['labels'], 2, 0)
+        _, masks_modif = tf.split(labels['mask'], 2, 0)
       else:
         hiddens = model_util.projection_head(hiddens, is_training)
+        logits_con = tf.zeros([params['batch_size'], 10])
+        labels_con = tf.zeros([params['batch_size'], 10])
+        labels_modif = labels['labels']
+        masks_modif = labels['mask']
       logits_sup = model_util.supervised_head(
           hiddens, num_classes, is_training)
       obj_lib.add_supervised_loss(
-          labels=labels['labels'],
+          labels=labels_modif,
           logits=logits_sup,
-          weights=labels['mask'])
+          weights=masks_modif)
 
     # Add weight decay to loss, for non-LARS optimizers.
     model_util.add_weight_decay(adjust_per_optimizer=True)
@@ -215,14 +222,19 @@ def build_model_fn(model, num_classes, num_train_examples):
             tf.argmax(labels_con, 1), logits_con, k=5, weights=mask)
         return metrics
 
+      if FLAGS.asymmetric_head:
+          assert params['batch_size']
+          bs_modif = int(params['batch_size'] / 2)
+      else:
+          bs_modif = params['batch_size']
       metrics = {
           'logits_sup': logits_sup,
-          'labels_sup': labels['labels'],
+          'labels_sup': labels_modif,
           'logits_con': logits_con,
           'labels_con': labels_con,
-          'mask': labels['mask'],
-          'contrast_loss': tf.fill((params['batch_size'],), contrast_loss),
-          'regularization_loss': tf.fill((params['batch_size'],),
+          'mask': masks_modif,
+          'contrast_loss': tf.fill((bs_modif,), contrast_loss),
+          'regularization_loss': tf.fill((bs_modif,),
                                          tf.losses.get_regularization_loss()),
       }
 

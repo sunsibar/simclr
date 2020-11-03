@@ -228,16 +228,10 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
     else:
       raise ValueError('Unknown head projection mode {}'.format(
           FLAGS.proj_head_mode))
-    if FLAGS.train_mode == 'pretrain':
-      # take the projection head output during pre-training.
-      hiddens = hiddens_list[-1]
-    else:
-      # for checkpoint compatibility, whole projection head is built here.
-      # but you can select part of projection head during fine-tuning.
-      hiddens = hiddens_list[FLAGS.ft_proj_selector]
 
     hiddens_predictor, hiddens_predictee = tf.split(hiddens, 2, axis=0)
-    hiddens_predictor_list = [hiddens_predictor]
+    hiddens_abstractor_list = [hiddens_predictor]
+    hiddens_predictor_list = []
 
     # abstraction layers
   with tf.variable_scope(name + "_abstractor" , reuse=tf.AUTO_REUSE):
@@ -252,8 +246,8 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
             hiddens_predictor, is_training, dim,
             use_bias=bias_relu, use_bn=True, name='nl_%d'%j)
         hiddens_predictor = tf.nn.relu(hiddens_predictor) if bias_relu else hiddens_predictor
-        hiddens_predictor_list.append(hiddens_predictor)
-        abstractions = hiddens_predictor
+        hiddens_abstractor_list.append(hiddens_predictor)
+    abstractions = hiddens_predictor # last "abstractor" layer
 
     # prediction layers
   with tf.variable_scope(name + "_predictor" , reuse=tf.AUTO_REUSE):
@@ -273,4 +267,26 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
   with tf.variable_scope(name + "_both" , reuse=tf.AUTO_REUSE):
     hiddens = tf.concat([hiddens_predictor, hiddens_predictee], axis=0)
 
+  if FLAGS.train_mode == 'pretrain':
+      # take the projection head output during pre-training.
+      hiddens = hiddens #hiddens_list[-1]
+  else:
+      # for checkpoint compatibility, whole projection head is built here.
+      # but you can select part of projection head during fine-tuning.
+      if FLAGS.ft_proj_head_selector == "abstractor":
+          hiddens = hiddens_abstractor_list[FLAGS.ft_proj_selector]
+      elif FLAGS.ft_proj_head_selector == "predictor":
+          hiddens = hiddens_predictor_list[FLAGS.ft_proj_selector]
+      elif FLAGS.ft_proj_head_selector == "predictee":
+          hiddens = hiddens_list[FLAGS.ft_proj_selector]
+          _, hiddens = tf.split(hiddens, 2, axis=0)
+          # discard one half -- not very efficient, might remove later if never used
+      elif FLAGS.ft_proj_head_selector == "original":
+          hiddens = hiddens_list[FLAGS.ft_proj_selector]
+      else:
+        raise ValueError('Unknown projection head part: {}. Can be one of: "abstractor", "predictor", '
+                         '"predictee", "original".'.format(FLAGS.ft_proj_head_selector))
+
   return hiddens, abstractions
+  # Todo: Are "abstractions" used anywhere, now that we can select different
+  #   abstraction- and other layers for finetuning?
