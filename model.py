@@ -67,6 +67,8 @@ def build_model_fn(model, num_classes, num_train_examples):
       hiddens = model(features, is_training=model_train_mode)
 
     # Add head and loss.
+    labels_modif = labels['labels']
+    masks_modif = labels['mask']
     if FLAGS.train_mode == 'pretrain':
       tpu_context = params['context'] if 'context' in params else None
       if FLAGS.asymmetric_head:
@@ -91,14 +93,12 @@ def build_model_fn(model, num_classes, num_train_examples):
         logits_con = tf.zeros([params['batch_size']/2, 10])
         labels_con = tf.zeros([params['batch_size']/2, 10])
         hiddens, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
-        _, labels_modif = tf.split(labels['labels'], 2, 0)
-        _, masks_modif = tf.split(labels['mask'], 2, 0)
+        _, labels_modif = tf.split(labels_modif, 2, 0)
+        _, masks_modif = tf.split(masks_modif, 2, 0)
       else:
         hiddens = model_util.projection_head(hiddens, is_training)
         logits_con = tf.zeros([params['batch_size'], 10])
         labels_con = tf.zeros([params['batch_size'], 10])
-        labels_modif = labels['labels']
-        masks_modif = labels['mask']
       logits_sup = model_util.supervised_head(
           hiddens, num_classes, is_training)
       obj_lib.add_supervised_loss(
