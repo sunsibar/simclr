@@ -189,7 +189,17 @@ def supervised_head(hiddens, num_classes, is_training, name='head_supervised'):
 
 
 def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
-  """Head for projecting hiddens fo contrastive loss."""
+  """Head for projecting hiddens fo contrastive loss.
+
+    :returns hiddens:
+            if FLAGS.train_mode == 'pretrain':
+               returns the output from both heads, concatenated. The predictee comes first.
+            if FLAGS.train_mode == 'finetune':
+               depending on FLAGS.ft_proj_head_selector, returns the layer
+                number <FLAGS.ft_proj_selector> from that part of the selected head.
+    :returns abstractions: the last layer from the abstractor.
+            Todo: Probably will be removed later. Don't use.
+  """
   #
   # Todo. First, treat the first batch_size elements different from the last batch_size elements.
   #        ( The "first" are the ... actually it might be symmetric, and both input images are augmented?)

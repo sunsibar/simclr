@@ -316,6 +316,7 @@ def build_hub_module(model, num_classes, global_step, checkpoint_path):
                 'final_avg_pool']:
         endpoints[v] = tf.get_default_graph().get_tensor_by_name(
             'base_model/{}:0'.format(v))
+
     if FLAGS.train_mode == 'pretrain':
       if FLAGS.asymmetric_head:
         hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
@@ -328,8 +329,12 @@ def build_hub_module(model, num_classes, global_step, checkpoint_path):
         endpoints['proj_head_input'] = hiddens
         endpoints['proj_head_output'] = hiddens_proj
     else:
+      if FLAGS.asymmetric_head:
+        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+      else:
+        hiddens_proj = hiddens
       logits_sup = model_util.supervised_head(
-          hiddens, num_classes, is_training)
+          hiddens_proj, num_classes, is_training)
       endpoints['logits_sup'] = logits_sup
     hub.add_signature(inputs=dict(images=inputs),
                       outputs=dict(endpoints, default=hiddens))

@@ -66,9 +66,15 @@ def build_model_fn(model, num_classes, num_train_examples):
         model_train_mode = is_training
       hiddens = model(features, is_training=model_train_mode)
 
-    # Add head and loss.
-    labels_modif = labels['labels']
-    masks_modif = labels['mask']
+    # * Add head and loss.
+    if FLAGS.asymmetric_head:
+      # In the asymmetric case, we will only use half of the input (the
+      #   part that is piped into the predicor head) for finetuning.
+      _, labels_modif = tf.split(labels['labels'], 2, 0)
+      _, masks_modif = tf.split( labels['mask'], 2, 0)
+    else:
+      labels_modif = labels['labels']
+      masks_modif = labels['mask']
     if FLAGS.train_mode == 'pretrain':
       tpu_context = params['context'] if 'context' in params else None
       if FLAGS.asymmetric_head:
@@ -90,11 +96,9 @@ def build_model_fn(model, num_classes, num_train_examples):
     else:
       contrast_loss = tf.zeros([])
       if FLAGS.asymmetric_head:
-        logits_con = tf.zeros([params['batch_size']/2, 10])
-        labels_con = tf.zeros([params['batch_size']/2, 10])
+        logits_con = tf.zeros([params['batch_size'], 10])
+        labels_con = tf.zeros([params['batch_size'], 10])
         hiddens, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
-        _, labels_modif = tf.split(labels_modif, 2, 0)
-        _, masks_modif = tf.split(masks_modif, 2, 0)
       else:
         hiddens = model_util.projection_head(hiddens, is_training)
         logits_con = tf.zeros([params['batch_size'], 10])
@@ -126,6 +130,14 @@ def build_model_fn(model, num_classes, num_train_examples):
     learning_rate = model_util.learning_rate_schedule(
         FLAGS.learning_rate, num_train_examples)
 
+    if FLAGS.asymmetric_head:
+        assert params['batch_size'] % 2 == 0
+        bs_modif = int(params['batch_size'] / 2)
+        _, logits_con = tf.split(logits_con, 2, 0)
+        _, labels_con = tf.split(labels_con, 2, 0)
+    else:
+        bs_modif = params['batch_size']
+
     if is_training:
       if FLAGS.train_summary_steps > 0:
         # Compute stats for the summary.
@@ -145,7 +157,7 @@ def build_model_fn(model, num_classes, num_train_examples):
                   tf.argmax(labels_con, 1), tf.argmax(logits_con, axis=1))
               contrast_acc = tf.reduce_mean(tf.cast(contrast_acc, tf.float32))
               label_acc = tf.equal(
-                  tf.argmax(labels['labels'], 1), tf.argmax(logits_sup, axis=1))
+                  tf.argmax(labels_modif, 1), tf.argmax(logits_sup, axis=1))
               label_acc = tf.reduce_mean(tf.cast(label_acc, tf.float32))
               tf2.summary.scalar(
                   'train_contrast_loss',
@@ -222,11 +234,7 @@ def build_model_fn(model, num_classes, num_train_examples):
             tf.argmax(labels_con, 1), logits_con, k=5, weights=mask)
         return metrics
 
-      if FLAGS.asymmetric_head:
-          assert params['batch_size']
-          bs_modif = int(params['batch_size'] / 2)
-      else:
-          bs_modif = params['batch_size']
+
       metrics = {
           'logits_sup': logits_sup,
           'labels_sup': labels_modif,

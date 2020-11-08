@@ -150,6 +150,12 @@ def build_input_fn(builder, is_training):
     dataset = pad_to_batch(dataset, params['batch_size'])
     images, labels, mask = tf.data.make_one_shot_iterator(dataset).get_next()
 
+    # if FLAGS.asymmetric_head and not (FLAGS.train_mode == 'pretrain'):
+    #     # Only one half of each batch will be evaluatable  (typically, the
+    #     # second half = from the prediction head)
+    #     _, labels = tf.split(labels, 2, 0)
+    #     _, mask = tf.split( mask, 2, 0)
+
     return images, {'labels': labels, 'mask': mask}
   return _input_fn
 
