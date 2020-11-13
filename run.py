@@ -282,13 +282,12 @@ flags.DEFINE_integer(
     'num_abstractor_layers', 1,
     'Number of layers that calculate some sort of higher-level features from the original features (original '
     'features are shared by predictor and to-be-predicted head). Only used if an asymmetric head is used.')
-## TODO: Instead add an option to add layers to the predictee that the predictor does not share.
-## TODO: Remove this one, and instead use "proj_head_mode"
+
+## TODO: Add an option to add layers to the predictee that the predictor does not share.
 # flags.DEFINE_integer(
 #     'features_additional_layers', 0,
-#     'Number of layers appended after max-pool to the output of ResNet. Shared by predictor and predictee head.'
-#     '(Predicting and predicted head?)'
-#     ' Only used if an asymmetric head is used and complex_features is the asymmetric_head_model.')
+#     'NOT shared by predictor and predictee head.'
+#     ' Only used if an asymmetric head is used and (???) complex_features is the asymmetric_head_model.')
 
 
 def build_hub_module(model, num_classes, global_step, checkpoint_path):
@@ -478,6 +477,7 @@ def main(argv):
         result = perform_evaluation(
             estimator=estimator,
             input_fn=data_lib.build_input_fn(builder, False),
+            # Todo: build_input_fn_two_images_with_shift()
             eval_steps=eval_steps,
             model=model,
             num_classes=num_classes,
@@ -488,11 +488,13 @@ def main(argv):
         return
   else:
     estimator.train(
-        data_lib.build_input_fn(builder, True), max_steps=train_steps)
+        data_lib.build_input_fn_two_images_with_shift(builder, True), max_steps=train_steps)
+            # Todo: build_input_fn_two_images_with_shift()
     if FLAGS.mode == 'train_then_eval':
       perform_evaluation(
           estimator=estimator,
-          input_fn=data_lib.build_input_fn(builder, False),
+          input_fn=data_lib.build_input_fn_two_images_with_shift(builder, False),
+            # Todo: build_input_fn_two_images_with_shift()
           eval_steps=eval_steps,
           model=model,
           num_classes=num_classes)

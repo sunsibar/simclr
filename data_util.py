@@ -23,6 +23,8 @@ import functools
 from absl import flags
 
 import tensorflow.compat.v1 as tf
+from tensorflow.python.ops import control_flow_ops # todo
+from tensorflow.python.ops import math_ops
 
 FLAGS = flags.FLAGS
 
@@ -325,6 +327,99 @@ def crop_and_resize(image, height, width):
   return tf.image.resize_bicubic([image], [height, width])[0]
 
 
+
+def resize(image, width, height, aspect_ratio_range=(3./4., 4./3.), size_range=(0.7, 1.4), area_range=None, scope=None):
+  """ Return a resized image, within range [factor_min, factor_max] of the desired width x random factor, and within
+      the given aspect ratio range of the original aspect ratio.
+      Aspect distortion within 3/4th and 4/3rd of original, as in crop_and_resize.
+
+  Args:
+    image: Tensor representing the image.
+    width: Desired image width.
+    height: Desired image width. We will use them to lower bound the range. (see code)/Todo
+    aspect_ratio_range: range for resulting aspect ratio.
+    size_range: resulting width will be within [width * size_range[0], width * size_range[1]].
+    area_range: Todo: Alternative to size_range. Specifies the range of the area that the resulting image can have,
+                      relative to the specified width and under original aspect ratio. Not implemented yet. Need
+                      to implement similarly to `tf.image.sample_distorted_bounding_box()´. From there:
+                      "An optional list of `floats`. Defaults to `[0.05, 1]`. The
+                        cropped area of the image must contain a fraction of the supplied image
+                        within this range."
+
+  Returns:
+    A `new height` x `new width` x channels Tensor holding a randomly resized version of `image`.
+    'New width' is within the aspect ratio range of the desired with, and 'new height' is within that range of
+     'height' x 'old aspect ratio'.
+  """
+  with tf.name_scope(scope, 'distorted_resize', [image]):
+    shape = tf.shape(image)
+    height_ratio = tf.to_float(shape[0])/tf.to_float(height)
+    width_ratio =  tf.to_float(shape[1])/tf.to_float(width)
+    aspect_ratio = tf.to_float(shape[0])/tf.to_float(shape[1]) * tf.random_uniform([], minval=aspect_ratio_range[0],
+                                                         maxval=aspect_ratio_range[1])
+    def create_height_from_width():
+      new_width = tf.to_int32(width * tf.random_uniform([], minval=size_range[0],
+                                                        maxval=size_range[1]))
+      new_height = tf.to_int32(tf.to_float(new_width) * aspect_ratio)
+      return new_width, new_height
+
+    def create_width_from_height():
+      new_height = tf.to_int32(height * tf.random_uniform([], minval=size_range[0],
+                                                          maxval=size_range[1]))
+      new_width = tf.to_int32(tf.to_float(new_height) / aspect_ratio)
+      return new_width, new_height
+
+    result_width, result_height = tf.cond(height_ratio < width_ratio,
+                                          create_width_from_height, create_height_from_width)
+    # Todo: This assumes shape[0] is height, shape[1] is width. Make sure that's correct.
+    # new_width = tf.to_int32(width * tf.random_uniform([], minval=size_range[0],
+    #                                                      maxval=size_range[1]) )
+    # new_height = tf.to_int32(tf.to_float(new_width) * aspect_ratio)
+    # result_height = tf.cond(new_height < height, height, new_height)
+    # result_width = tf.cond(new_height < height, height / aspect_ratio, new_width)   # todo : check all this, there might be a nicer option, was written at night
+
+    check = control_flow_ops.Assert(math_ops.reduce_all([result_width >= width * size_range[0],
+                                                         result_height >= height * size_range[0]]),
+                                    ["Image size would be reduced below threshold. Resulting size:",
+                                     [result_height, result_width]],
+                                    summarize=1000)
+    result_width = control_flow_ops.with_dependencies([check], shape)
+
+    return tf.image.resize_bicubic([image], [result_height, result_width])[0]
+
+def random_crop_with_shift(image, height, width, scope=None):
+  """Take a random crop of a given `height` and `width`.
+    Also return the shift vector.
+
+   Args:
+     image: Tensor representing the image.
+     height: Desired image height.
+     width: Desired image width.
+
+   Returns:
+     A `height` x `width` x channels Tensors holding a random crop of `image`.
+     A vector-Tensor of length 2, giving the relative shift of the upper left corner relative to the
+     original upper left corner. (Or rather, the coordinate (0,0) in each - irrespective of whether that's the
+     upper left corner or some other corner.)
+   """
+  with tf.name_scope(scope, 'random_crop_with_shift', [image,]):
+    shape = tf.shape(image)
+    check = control_flow_ops.Assert(math_ops.reduce_all(shape >= [height, width, 0]),
+                                    ["Crop size larger than image size. "
+                                     "Need value.shape >= [height, width], got ", shape, [height, width]],
+                                    summarize=1000)
+    shape = control_flow_ops.with_dependencies([check], shape)
+    ## See also: https://github.com/tensorflow/tensorflow/blob/v1.15.0/tensorflow/python/ops/random_ops.py#L290-L331
+    # tf.assert_less(width, shape[1], message="crop size larger than image size.")
+    # tf.assert_less(height, shape[0], message="crop size larger than image size.")
+    limit_h = shape[0] - height + 1
+    limit_w = shape[1] - width + 1
+    offset_h = tf.random_uniform([], minval=0, maxval=limit_h, dtype=tf.dtypes.int32) # % limit_h
+    offset_w = tf.random_uniform([], minval=0, maxval=limit_w, dtype=tf.dtypes.int32) # % limit_w
+
+    return tf.image.crop_to_bounding_box(image, offset_h, offset_w, height, width), (offset_h, offset_w)
+
+
 def gaussian_blur(image, kernel_size, sigma, padding='SAME'):
   """Blurs the given image with separable convolution.
 
@@ -382,6 +477,7 @@ def random_crop_with_resize(image, height, width, p=1.0):
     image = crop_and_resize(image, height, width)
     return image
   return random_apply(_transform, p=p, x=image)
+
 
 
 def random_color_jitter(image, p=1.0, impl='simclrv2'):
@@ -477,6 +573,51 @@ def preprocess_for_train(image,
   return image
 
 
+def preprocess_into_two_for_train(image,
+                         height,
+                         width,
+                         color_distort=True,
+                         #crop=True,
+                         min_image_fraction=0.05,
+                         flip=True,
+                         impl='simclrv2'):
+  """Preprocesses the given image for training. Returns two crops.
+
+  Args:
+    image: `Tensor` representing an image of arbitrary size.
+    height: Height of output image.
+    width: Width of output image.
+    color_distort: Whether to apply the color distortion.
+    crop: Whether to crop the image.
+    min_image_fraction: At minimum so much of the original image has to be contained in the crop.
+                        Used to calculate the upper limit for scaling up the image before cropping.
+    flip: Whether or not to flip left and right of an image.
+    impl: 'simclrv1' or 'simclrv2'.  Whether to use simclrv1 or simclrv2's
+        version of random brightness.
+
+  Returns:
+    A preprocessed image `Tensor`.
+  """
+  if flip:
+    image = tf.image.random_flip_left_right(image)
+  if color_distort:
+    image = random_color_jitter(image, impl=impl)
+  tf.assert_greater(1., min_image_fraction, message="min_image_fraction should be smaller than 1.")
+  max_width = 1. / tf.sqrt(min_image_fraction) * width
+  image = resize(image, max_width, size_range=(tf.sqrt(min_image_fraction), 1.))
+  image = tf.Print(image, [tf.shape(image), max_width, tf.sqrt(min_image_fraction), tf.sqrt(min_image_fraction) * max_width], "image shape after resize / max_width/ sqrt(min_fraction) / min width")
+  # todo -could do: move tf.sqrt into resizing and use as parameter area_range instead of size_range.
+  image1, shift1 = random_crop_with_shift(image, height, width)
+  image2, shift2 = random_crop_with_shift(image, height, width)
+
+  # vector from the first offset to the second image's offset:
+  relative_shift = [shift2[0] - shift1[0], shift2[1] - shift1[1]]
+
+  image1 = tf.clip_by_value(image1, 0., 1.)
+  image2 = tf.clip_by_value(image2, 0., 1.)
+  return image1, image2, relative_shift
+
+
 def preprocess_for_eval(image, height, width, crop=True):
   """Preprocesses the given image for evaluation.
 
@@ -494,6 +635,26 @@ def preprocess_for_eval(image, height, width, crop=True):
   image = tf.reshape(image, [height, width, 3])
   image = tf.clip_by_value(image, 0., 1.)
   return image
+
+
+def preprocess_into_two_for_eval(image, height, width, crop=True):
+  """Preprocesses the given image for evaluation.
+
+  Args:
+    image: `Tensor` representing an image of arbitrary size.
+    height: Height of output image.
+    width: Width of output image.
+    crop: Whether or not to (center) crop the test images.
+
+  Returns:
+    Twice a preprocessed image `Tensor`.
+    Zero-shift.
+  """
+  if crop:
+    image = center_crop(image, height, width, crop_proportion=CROP_PROPORTION)
+  image = tf.reshape(image, [height, width, 3])
+  image = tf.clip_by_value(image, 0., 1.)
+  return image, image, [0,0]
 
 
 def preprocess_image(image, height, width, is_training=False,
@@ -517,3 +678,28 @@ def preprocess_image(image, height, width, is_training=False,
     return preprocess_for_train(image, height, width, color_distort)
   else:
     return preprocess_for_eval(image, height, width, test_crop)
+
+def preprocess_into_two_images(image, height, width, is_training=False,
+                     color_distort=True, test_crop=True):
+  """Preprocesses the given image.
+  TODO:
+     Return two preprocessed versions right away, and the shift (only) between the two.
+     The second uses the same zoom level.
+
+  Args:
+    image: `Tensor` representing an image of arbitrary size.
+    height: Height of output image.
+    width: Width of output image.
+    is_training: `bool` for whether the preprocessing is for training.
+    color_distort: whether to apply the color distortion.
+    test_crop: whether or not to extract a central crop of the images
+        (as for standard ImageNet evaluation) during the evaluation.
+
+  Returns:
+    Two crops of a preprocessed image; both `Tensors` of range [0, 1].
+  """
+  image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+  if is_training:
+    return preprocess_into_two_for_train(image, height, width, color_distort)
+  else:
+    return preprocess_into_two_for_eval(image, height, width, test_crop)

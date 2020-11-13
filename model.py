@@ -55,6 +55,8 @@ def build_model_fn(model, num_classes, num_train_examples):
       features_list = data_util.batch_random_blur(
           features_list, FLAGS.image_size, FLAGS.image_size)
     features = tf.concat(features_list, 0)  # (num_transforms * bsz, h, w, c)
+    features =  tf.Print(features, [tf.shape(features)[0], tf.shape(features)[1],
+                                tf.shape(features)[2], tf.shape(features)[3:]], "shape of concatenated features, before resnet:",)
 
     # Base network forward pass.
     with tf.variable_scope('base_model'):
@@ -66,15 +68,16 @@ def build_model_fn(model, num_classes, num_train_examples):
         model_train_mode = is_training
       hiddens = model(features, is_training=model_train_mode)
 
+
+
     # * Add head and loss.
-    # if FLAGS.asymmetric_head:
-    #   # In the asymmetric case, we will only use half of the input (the
-    #   #   part that is piped into the predicor head) for finetuning.
-    #   _, labels_modif = tf.split(labels['labels'], 2, 0)
-    #   _, masks_modif = tf.split( labels['mask'], 2, 0)
-    # else:
-    labels_modif = labels['labels']
-    masks_modif = labels['mask']
+
+    labels_modif = tf.Print(labels['labels'], [tf.shape(labels['labels'])[0], tf.shape(labels['labels'])[1],
+                                               tf.shape(labels['labels'])[2:]], "shape of labels:", )
+    masks_modif = tf.Print(labels['mask'], [tf.shape(labels['mask'])[0:]], "shape of masks:", )
+    masks_modif = tf.Print(masks_modif, [tf.shape(labels['shift'])[0], tf.shape(labels['shift'])[1],
+                                         tf.shape(labels['shift'])[2:]], "shape of shifts:", )
+
     if FLAGS.train_mode == 'pretrain':
       tpu_context = params['context'] if 'context' in params else None
       if FLAGS.asymmetric_head:
