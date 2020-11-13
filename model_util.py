@@ -197,6 +197,9 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
             if FLAGS.train_mode == 'finetune':
                depending on FLAGS.ft_proj_head_selector, returns the layer
                 number <FLAGS.ft_proj_selector> from that part of the selected head.
+                (Also expects hiddens to only contain a single set of features,
+                 unlike for 'pretrain' where it should contain the features for
+                 both heads, stacked along batch dimension.)
     :returns abstractions: the last layer from the abstractor.
             Todo: Probably will be removed later. Don't use.
   """
@@ -239,7 +242,10 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
       raise ValueError('Unknown head projection mode {}'.format(
           FLAGS.proj_head_mode))
 
-    hiddens_predictor, hiddens_predictee = tf.split(hiddens, 2, axis=0)
+    if FLAGS.train_mode == 'pretrain':
+      hiddens_predictor, hiddens_predictee = tf.split(hiddens, 2, axis=0)
+    else:
+      hiddens_predictor = hiddens
     hiddens_abstractor_list = [hiddens_predictor]
     hiddens_predictor_list = []
 
@@ -274,12 +280,9 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
         hiddens_predictor = tf.nn.relu(hiddens_predictor) if bias_relu else hiddens_predictor
         hiddens_predictor_list.append(hiddens_predictor)
 
-  with tf.variable_scope(name + "_both" , reuse=tf.AUTO_REUSE):
-    hiddens = tf.concat([hiddens_predictor, hiddens_predictee], axis=0)
-
   if FLAGS.train_mode == 'pretrain':
-      # take the projection head output during pre-training.
-      hiddens = hiddens #hiddens_list[-1]
+    with tf.variable_scope(name + "_both" , reuse=tf.AUTO_REUSE):
+      hiddens = tf.concat([hiddens_predictor, hiddens_predictee], axis=0)
   else:
       # for checkpoint compatibility, whole projection head is built here.
       # but you can select part of projection head during fine-tuning.
@@ -289,10 +292,11 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
           hiddens = hiddens_predictor_list[FLAGS.ft_proj_selector]
       elif FLAGS.ft_proj_head_selector == "predictee":
           hiddens = hiddens_list[FLAGS.ft_proj_selector]
-          _, hiddens = tf.split(hiddens, 2, axis=0)
-          # discard one half -- not very efficient, might remove later if never used
-      elif FLAGS.ft_proj_head_selector == "original":
-          hiddens = hiddens_list[FLAGS.ft_proj_selector]
+          # _, hiddens = tf.split(hiddens, 2, axis=0)
+          # Edit: No! Wrong! -old: discard one half -- not very efficient, might remove later if never used
+      # elif FLAGS.ft_proj_head_selector == "original":
+          # hiddens = hiddens_list[FLAGS.ft_proj_selector]
+          # Todo: Remove the last option, it's not compatible!
       else:
         raise ValueError('Unknown projection head part: {}. Can be one of: "abstractor", "predictor", '
                          '"predictee", "original".'.format(FLAGS.ft_proj_head_selector))

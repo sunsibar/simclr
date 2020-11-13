@@ -67,14 +67,14 @@ def build_model_fn(model, num_classes, num_train_examples):
       hiddens = model(features, is_training=model_train_mode)
 
     # * Add head and loss.
-    if FLAGS.asymmetric_head:
-      # In the asymmetric case, we will only use half of the input (the
-      #   part that is piped into the predicor head) for finetuning.
-      _, labels_modif = tf.split(labels['labels'], 2, 0)
-      _, masks_modif = tf.split( labels['mask'], 2, 0)
-    else:
-      labels_modif = labels['labels']
-      masks_modif = labels['mask']
+    # if FLAGS.asymmetric_head:
+    #   # In the asymmetric case, we will only use half of the input (the
+    #   #   part that is piped into the predicor head) for finetuning.
+    #   _, labels_modif = tf.split(labels['labels'], 2, 0)
+    #   _, masks_modif = tf.split( labels['mask'], 2, 0)
+    # else:
+    labels_modif = labels['labels']
+    masks_modif = labels['mask']
     if FLAGS.train_mode == 'pretrain':
       tpu_context = params['context'] if 'context' in params else None
       if FLAGS.asymmetric_head:
@@ -84,7 +84,8 @@ def build_model_fn(model, num_classes, num_train_examples):
             hidden_norm=FLAGS.hidden_norm,
             temperature=FLAGS.temperature,
             tpu_context=tpu_context if is_training else None)
-        logits_sup = tf.zeros([params['batch_size'] / 2, num_classes])
+        # logits_sup = tf.zeros([params['batch_size'] / 2, num_classes])
+        logits_sup = tf.zeros([params['batch_size'] , num_classes])
       else:
         hiddens_proj = model_util.projection_head(hiddens, is_training)
         contrast_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
@@ -130,13 +131,13 @@ def build_model_fn(model, num_classes, num_train_examples):
     learning_rate = model_util.learning_rate_schedule(
         FLAGS.learning_rate, num_train_examples)
 
-    if FLAGS.asymmetric_head:
-        assert params['batch_size'] % 2 == 0
-        bs_modif = int(params['batch_size'] / 2)
-        _, logits_con = tf.split(logits_con, 2, 0)
-        _, labels_con = tf.split(labels_con, 2, 0)
-    else:
-        bs_modif = params['batch_size']
+    # if FLAGS.asymmetric_head:
+        # assert params['batch_size'] % 2 == 0
+        # bs_modif = int(params['batch_size'] / 2)
+        # _, logits_con = tf.split(logits_con, 2, 0)
+        # _, labels_con = tf.split(labels_con, 2, 0)
+    # else:
+    bs_modif = params['batch_size']
 
     if is_training:
       if FLAGS.train_summary_steps > 0:

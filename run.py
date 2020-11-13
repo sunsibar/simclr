@@ -217,14 +217,13 @@ flags.DEFINE_integer(
 
 flags.DEFINE_string(
     'ft_proj_head_selector', "abstractor",
-    'One of "abstractor", "predictee", "predictor", "original". '
+    'One of "abstractor", "predictee", "predictor". '
     'Only used if "asymmetric_head" is True. A modifier for easier selection of a layer from the prediction head'
     ' for finetuning.'
-    'The selected layer will be the "ft_proj_selector"-th layer from each of the three heads. "original" works '
-    'as with no asymmetric head; i.e., the resulting batch size is double the number of input batch size. For the others, '
-    'the resulting batch size is half of what it is in the non-asymmetric version, because the single head is split up '
-    'into two here.  "abstractor" is on the predictor head; "predictor" is the final part of the predictor head. '
-    '"predictee" is the shorter head that "is being" predicted.')
+    'The selected layer will be the "ft_proj_selector"-th layer from each of the three head-parts. '
+    '"abstractor" is on the predictor head; "predictor" is the final part of the predictor head. '
+    '"predictee" is the shorter head that "is being" predicted (it is also part of the predictor'
+    ' though/its the same as the initial layers of the predictor head).')
 
 
 flags.DEFINE_boolean(
@@ -283,7 +282,7 @@ flags.DEFINE_integer(
     'num_abstractor_layers', 1,
     'Number of layers that calculate some sort of higher-level features from the original features (original '
     'features are shared by predictor and to-be-predicted head). Only used if an asymmetric head is used.')
-
+## TODO: Instead add an option to add layers to the predictee that the predictor does not share.
 ## TODO: Remove this one, and instead use "proj_head_mode"
 # flags.DEFINE_integer(
 #     'features_additional_layers', 0,
