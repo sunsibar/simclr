@@ -361,16 +361,17 @@ def resize(image, width, height, aspect_ratio_range=(3./4., 4./3.), size_range=(
       new_width = tf.to_int32(width * tf.random_uniform([], minval=size_range[0],
                                                         maxval=size_range[1]))
       new_height = tf.to_int32(tf.to_float(new_width) * aspect_ratio)
-      return new_width, new_height
+      return tf.stack([new_height, new_width])
 
     def create_width_from_height():
       new_height = tf.to_int32(height * tf.random_uniform([], minval=size_range[0],
                                                           maxval=size_range[1]))
       new_width = tf.to_int32(tf.to_float(new_height) / aspect_ratio)
-      return new_width, new_height
+      return tf.stack([new_height, new_width])
 
-    result_width, result_height = tf.cond(height_ratio < width_ratio,
+    result_size = tf.cond(height_ratio < width_ratio,
                                           create_width_from_height, create_height_from_width)
+    result_height, result_width = result_size[0], result_size[1]
     # Todo: This assumes shape[0] is height, shape[1] is width. Make sure that's correct.
     # new_width = tf.to_int32(width * tf.random_uniform([], minval=size_range[0],
     #                                                      maxval=size_range[1]) )
@@ -378,14 +379,14 @@ def resize(image, width, height, aspect_ratio_range=(3./4., 4./3.), size_range=(
     # result_height = tf.cond(new_height < height, height, new_height)
     # result_width = tf.cond(new_height < height, height / aspect_ratio, new_width)   # todo : check all this, there might be a nicer option, was written at night
 
-    check = control_flow_ops.Assert(math_ops.reduce_all([result_width >= width * size_range[0],
-                                                         result_height >= height * size_range[0]]),
+    check = control_flow_ops.Assert(math_ops.reduce_all([result_width >= tf.to_int32(width * size_range[0]),
+                                                         result_height >= tf.to_int32(height * size_range[0])]),
                                     ["Image size would be reduced below threshold. Resulting size:",
                                      [result_height, result_width]],
                                     summarize=1000)
     result_width = control_flow_ops.with_dependencies([check], shape)
 
-    return tf.image.resize_bicubic([image], [result_height, result_width])[0]
+    return tf.image.resize_bicubic([image], result_size)[0]
 
 def random_crop_with_shift(image, height, width, scope=None):
   """Take a random crop of a given `height` and `width`.
@@ -604,7 +605,8 @@ def preprocess_into_two_for_train(image,
     image = random_color_jitter(image, impl=impl)
   tf.assert_greater(1., min_image_fraction, message="min_image_fraction should be smaller than 1.")
   max_width = 1. / tf.sqrt(min_image_fraction) * width
-  image = resize(image, max_width, size_range=(tf.sqrt(min_image_fraction), 1.))
+  max_height = 1. / tf.sqrt(min_image_fraction) * height
+  image = resize(image, max_width, max_height, size_range=(tf.sqrt(min_image_fraction), 1.))
   image = tf.Print(image, [tf.shape(image), max_width, tf.sqrt(min_image_fraction), tf.sqrt(min_image_fraction) * max_width], "image shape after resize / max_width/ sqrt(min_fraction) / min width")
   # todo -could do: move tf.sqrt into resizing and use as parameter area_range instead of size_range.
   image1, shift1 = random_crop_with_shift(image, height, width)

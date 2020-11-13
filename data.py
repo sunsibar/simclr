@@ -183,20 +183,21 @@ def build_input_fn_two_images_with_shift(builder, is_training):
       """Produces multiple transformations of the same batch."""
       if FLAGS.train_mode == 'pretrain':
         xs = []
-        for _ in range(2):  # Two transformations
+        # for _ in range(2):  # Two transformations
           # Todo: Modify the preprocess function to return two tensors, one with the result, one
           #       with the shift distances and rotations. Then,
           # x, preprocess_shift = preprocess_fn_pretrain(image)
           # xs.append(x)
           # shifts.append(preprocess_shift) ...
-          xs.append(preprocess_fn_pretrain(image))
+          # xs.append(preprocess_fn_pretrain(image))
         img1, img2, shift = preprocess_fn_pretrain(image)
         xs = [img1, img2]
         image = tf.concat(xs, -1)
         label = tf.zeros([num_classes])
       else:
         img1, img2, shift = preprocess_fn_finetune(image)
-        image = tf.concat([img1, img2], -1)
+        image = img1 #tf.concat([img1, img2], -1)
+        shift = tf.zeros_like(shift)
         label = tf.one_hot(label, num_classes)
       return image, label, 1.0, shift
 
@@ -214,12 +215,6 @@ def build_input_fn_two_images_with_shift(builder, is_training):
     dataset = dataset.batch(params['batch_size'], drop_remainder=is_training)
     dataset = pad_to_batch(dataset, params['batch_size'])
     images, labels, mask, shift = tf.data.make_one_shot_iterator(dataset).get_next()
-
-    # if FLAGS.asymmetric_head and not (FLAGS.train_mode == 'pretrain'):
-    #     # Only one half of each batch will be evaluatable  (typically, the
-    #     # second half = from the prediction head)
-    #     _, labels = tf.split(labels, 2, 0)
-    #     _, mask = tf.split( mask, 2, 0)
 
     return images, {'labels': labels, 'mask': mask, 'shift': shift}
   return _input_fn
