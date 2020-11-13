@@ -353,24 +353,30 @@ def resize(image, width, height, aspect_ratio_range=(3./4., 4./3.), size_range=(
   """
   with tf.name_scope(scope, 'distorted_resize', [image]):
     shape = tf.shape(image)
-    height_ratio = tf.to_float(shape[0])/tf.to_float(height)
-    width_ratio =  tf.to_float(shape[1])/tf.to_float(width)
+    # height_ratio = tf.to_float(shape[0])/tf.to_float(height)
+    # width_ratio =  tf.to_float(shape[1])/tf.to_float(width)
     aspect_ratio = tf.to_float(shape[0])/tf.to_float(shape[1]) * tf.random_uniform([], minval=aspect_ratio_range[0],
                                                          maxval=aspect_ratio_range[1])
-    def create_height_from_width():
+    def create_height_from_width(random_factor):
       new_width = tf.to_int32(width * tf.random_uniform([], minval=size_range[0],
                                                         maxval=size_range[1]))
       new_height = tf.to_int32(tf.to_float(new_width) * aspect_ratio)
-      return tf.stack([new_height, new_width])
+      return new_height, new_width
 
-    def create_width_from_height():
+    def create_width_from_height(random_factor):
       new_height = tf.to_int32(height * tf.random_uniform([], minval=size_range[0],
                                                           maxval=size_range[1]))
       new_width = tf.to_int32(tf.to_float(new_height) / aspect_ratio)
-      return tf.stack([new_height, new_width])
+      return new_height, new_width
 
-    result_size = tf.cond(height_ratio < width_ratio,
-                                          create_width_from_height, create_height_from_width)
+    rand_f = tf.random_uniform([], minval=size_range[0], maxval=size_range[1])
+    nh1, nw1 = create_height_from_width(rand_f) # width expected to be larger than minimum width = size_range[0]*width
+    nh2, nw2 = create_width_from_height(rand_f) # height expected to be larger than minimum height
+
+    result_size = tf.cond(nh1 < tf.to_int32(size_range[0]*height),
+                          lambda: tf.stack([nh2, nw2]), lambda: tf.stack([nh1, nw1]))
+    # result_size = tf.cond(height_ratio < width_ratio,
+    #                                       create_width_from_height, create_height_from_width)
     result_height, result_width = result_size[0], result_size[1]
     # Todo: This assumes shape[0] is height, shape[1] is width. Make sure that's correct.
     # new_width = tf.to_int32(width * tf.random_uniform([], minval=size_range[0],
@@ -384,7 +390,7 @@ def resize(image, width, height, aspect_ratio_range=(3./4., 4./3.), size_range=(
                                     ["Image size would be reduced below threshold. Resulting size:",
                                      [result_height, result_width]],
                                     summarize=1000)
-    result_width = control_flow_ops.with_dependencies([check], shape)
+    result_size = control_flow_ops.with_dependencies([check], result_size)
 
     return tf.image.resize_bicubic([image], result_size)[0]
 
