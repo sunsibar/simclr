@@ -55,8 +55,8 @@ def build_model_fn(model, num_classes, num_train_examples):
       features_list = data_util.batch_random_blur(
           features_list, FLAGS.image_size, FLAGS.image_size)
     features = tf.concat(features_list, 0)  # (num_transforms * bsz, h, w, c)
-    features =  tf.Print(features, [tf.shape(features)[0], tf.shape(features)[1],
-                                tf.shape(features)[2], tf.shape(features)[3:]], "shape of concatenated features, before resnet:",)
+    # features =  tf.Print(features, [tf.shape(features)[0], tf.shape(features)[1],
+    #                             tf.shape(features)[2], tf.shape(features)[3:]], "shape of concatenated features, before resnet:",)
 
     # Base network forward pass.
     with tf.variable_scope('base_model'):
@@ -68,26 +68,22 @@ def build_model_fn(model, num_classes, num_train_examples):
         model_train_mode = is_training
       hiddens = model(features, is_training=model_train_mode)
 
-
+    # labels_modif = tf.Print(labels['labels'], [tf.shape(labels['labels'])[0], tf.shape(labels['labels'])[1],
+    #                                            tf.shape(labels['labels'])[2:]], "shape of labels:", )
+    # masks_modif = tf.Print(labels['mask'], [tf.shape(labels['mask'])[0:]], "shape of masks:", )
+    # masks_modif = tf.Print(masks_modif, [tf.shape(labels['shift'])[0], tf.shape(labels['shift'])[1],
+    #                                      tf.shape(labels['shift'])[2:]], "shape of shifts:", )
 
     # * Add head and loss.
-
-    labels_modif = tf.Print(labels['labels'], [tf.shape(labels['labels'])[0], tf.shape(labels['labels'])[1],
-                                               tf.shape(labels['labels'])[2:]], "shape of labels:", )
-    masks_modif = tf.Print(labels['mask'], [tf.shape(labels['mask'])[0:]], "shape of masks:", )
-    masks_modif = tf.Print(masks_modif, [tf.shape(labels['shift'])[0], tf.shape(labels['shift'])[1],
-                                         tf.shape(labels['shift'])[2:]], "shape of shifts:", )
-
     if FLAGS.train_mode == 'pretrain':
       tpu_context = params['context'] if 'context' in params else None
       if FLAGS.asymmetric_head:
-        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training, shift=labels["shift"])
         contrast_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
             hiddens_proj,
             hidden_norm=FLAGS.hidden_norm,
             temperature=FLAGS.temperature,
             tpu_context=tpu_context if is_training else None)
-        # logits_sup = tf.zeros([params['batch_size'] / 2, num_classes])
         logits_sup = tf.zeros([params['batch_size'] , num_classes])
       else:
         hiddens_proj = model_util.projection_head(hiddens, is_training)
@@ -110,9 +106,9 @@ def build_model_fn(model, num_classes, num_train_examples):
       logits_sup = model_util.supervised_head(
           hiddens, num_classes, is_training)
       obj_lib.add_supervised_loss(
-          labels=labels_modif,
+          labels=labels['labels'],
           logits=logits_sup,
-          weights=masks_modif)
+          weights=labels['mask'])
 
     # Add weight decay to loss, for non-LARS optimizers.
     model_util.add_weight_decay(adjust_per_optimizer=True)
@@ -134,14 +130,6 @@ def build_model_fn(model, num_classes, num_train_examples):
     learning_rate = model_util.learning_rate_schedule(
         FLAGS.learning_rate, num_train_examples)
 
-    # if FLAGS.asymmetric_head:
-        # assert params['batch_size'] % 2 == 0
-        # bs_modif = int(params['batch_size'] / 2)
-        # _, logits_con = tf.split(logits_con, 2, 0)
-        # _, labels_con = tf.split(labels_con, 2, 0)
-    # else:
-    bs_modif = params['batch_size']
-
     if is_training:
       if FLAGS.train_summary_steps > 0:
         # Compute stats for the summary.
@@ -161,7 +149,7 @@ def build_model_fn(model, num_classes, num_train_examples):
                   tf.argmax(labels_con, 1), tf.argmax(logits_con, axis=1))
               contrast_acc = tf.reduce_mean(tf.cast(contrast_acc, tf.float32))
               label_acc = tf.equal(
-                  tf.argmax(labels_modif, 1), tf.argmax(logits_sup, axis=1))
+                  tf.argmax(labels['labels'], 1), tf.argmax(logits_sup, axis=1))
               label_acc = tf.reduce_mean(tf.cast(label_acc, tf.float32))
               tf2.summary.scalar(
                   'train_contrast_loss',
@@ -241,12 +229,12 @@ def build_model_fn(model, num_classes, num_train_examples):
 
       metrics = {
           'logits_sup': logits_sup,
-          'labels_sup': labels_modif,
+          'labels_sup': labels['labels'],
           'logits_con': logits_con,
           'labels_con': labels_con,
-          'mask': masks_modif,
-          'contrast_loss': tf.fill((bs_modif,), contrast_loss),
-          'regularization_loss': tf.fill((bs_modif,),
+          'mask': labels['mask'],
+          'contrast_loss': tf.fill((params['batch_size'],), contrast_loss),
+          'regularization_loss': tf.fill((params['batch_size'],),
                                          tf.losses.get_regularization_loss()),
       }
 

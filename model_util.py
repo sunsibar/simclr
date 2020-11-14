@@ -188,8 +188,11 @@ def supervised_head(hiddens, num_classes, is_training, name='head_supervised'):
 
 
 
-def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
+def projection_head_asymmetric(hiddens, is_training, name='head_contrastive', shift=None):
   """Head for projecting hiddens fo contrastive loss.
+    :param shift: Tensor (batch_size x 2) containing the shift between the images fed to the two heads.
+                  If hiddens contains first the features to img1, then those to img2 (in that order),
+                  shift should contain the shift from image 1 to image 2. (Rotations not supported.)
 
     :returns hiddens:
             if FLAGS.train_mode == 'pretrain':
@@ -267,7 +270,12 @@ def projection_head_asymmetric(hiddens, is_training, name='head_contrastive'):
 
     # prediction layers
   with tf.variable_scope(name + "_predictor" , reuse=tf.AUTO_REUSE):
+    shift = tf.Print(shift, [shift], "Shifts for this batch were: ")
+    shift = tf.to_float(shift)
     for j in range(FLAGS.num_predictor_layers):
+        # Stack shift onto abstractions, resulting in features of size (bs x (channels + 2))
+        hiddens_predictor = tf.concat([hiddens_predictor, shift], axis=1)
+
         if j != FLAGS.num_predictor_layers - 1:
           # for the middle layers, use bias and relu for the output.
           dim, bias_relu = mid_dim, True

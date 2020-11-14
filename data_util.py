@@ -613,7 +613,11 @@ def preprocess_into_two_for_train(image,
   max_width = 1. / tf.sqrt(min_image_fraction) * width
   max_height = 1. / tf.sqrt(min_image_fraction) * height
   image = resize(image, max_width, max_height, size_range=(tf.sqrt(min_image_fraction), 1.))
-  image = tf.Print(image, [tf.shape(image), max_width, tf.sqrt(min_image_fraction), tf.sqrt(min_image_fraction) * max_width], "image shape after resize / max_width/ sqrt(min_fraction) / min width")
+  to_print = [tf.shape(image), max_width, tf.sqrt(min_image_fraction),
+                           tf.sqrt(min_image_fraction) * max_width, height, width]
+  messages = ["image shape after resize:", "max_width:", "sqrt(min_fraction):" , "min width: " , "we will crop: "]
+  for var, msg in zip(to_print, messages):
+    image = tf.Print(image, [var], msg)
   # todo -could do: move tf.sqrt into resizing and use as parameter area_range instead of size_range.
   image1, shift1 = random_crop_with_shift(image, height, width)
   image2, shift2 = random_crop_with_shift(image, height, width)
@@ -662,7 +666,7 @@ def preprocess_into_two_for_eval(image, height, width, crop=True):
     image = center_crop(image, height, width, crop_proportion=CROP_PROPORTION)
   image = tf.reshape(image, [height, width, 3])
   image = tf.clip_by_value(image, 0., 1.)
-  return image, image, [0,0]
+  return image, image, tf.zeros([2,])#[0.0, 0.0])
 
 
 def preprocess_image(image, height, width, is_training=False,

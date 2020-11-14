@@ -307,6 +307,11 @@ def build_hub_module(model, num_classes, global_step, checkpoint_path):
     endpoints = {}
     inputs = tf.placeholder(
         tf.float32, [None, None, None, 3])
+    shifts = None
+    if FLAGS.asymmetric_head:
+        shifts = tf.placeholder(
+            tf.float32, [None, 2]
+        )
     with tf.variable_scope('base_model', reuse=tf.AUTO_REUSE):
       hiddens = model(inputs, is_training)
       for v in ['initial_conv', 'initial_max_pool', 'block_group1',
@@ -317,7 +322,7 @@ def build_hub_module(model, num_classes, global_step, checkpoint_path):
 
     if FLAGS.train_mode == 'pretrain':
       if FLAGS.asymmetric_head:
-        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training)
+        hiddens_proj, abstrs = model_util.projection_head_asymmetric(hiddens, is_training, shift=shifts)
         endpoints['proj_head_input'] = hiddens
         endpoints['proj_head_abstractions'] = abstrs
         endpoints['proj_head_output_predictor_predictee'] = hiddens_proj
@@ -476,10 +481,9 @@ def main(argv):
       try:
         result = perform_evaluation(
             estimator=estimator,
-            input_fn=data_lib.build_input_fn(builder, False),
-            # Todo: build_input_fn_two_images_with_shift()
+            input_fn=data_lib.build_input_fn_two_images_with_shift(builder, False),
             eval_steps=eval_steps,
-            model=model,
+            model=model, # <- plain ResNet (only used for creating a hub module, not for the evaluation)
             num_classes=num_classes,
             checkpoint_path=ckpt)
       except tf.errors.NotFoundError:
@@ -494,7 +498,6 @@ def main(argv):
       perform_evaluation(
           estimator=estimator,
           input_fn=data_lib.build_input_fn_two_images_with_shift(builder, False),
-            # Todo: build_input_fn_two_images_with_shift()
           eval_steps=eval_steps,
           model=model,
           num_classes=num_classes)
